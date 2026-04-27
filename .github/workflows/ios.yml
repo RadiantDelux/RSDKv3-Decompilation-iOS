@@ -16,6 +16,9 @@ jobs:
           echo "SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)" >> $GITHUB_ENV
           echo "CC_IOS=$(xcrun -find clang)" >> $GITHUB_ENV
 
+          # Create empty Data.rsdk placeholder (Xcode requires it as a bundle resource)
+          touch dependencies/ios/Data.rsdk
+
           # Xcode project expects SonicCDDecomp/ but source is in RSDKv3/
           ln -s RSDKv3 SonicCDDecomp
 
