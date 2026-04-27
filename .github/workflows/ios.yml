@@ -94,7 +94,7 @@ jobs:
           # Replace SDL_UpdateYUVTexture with SDL_UpdateTexture for RGBA on iOS
           perl -i -0777 -pe 's{#elif RETRO_USING_SDL2\n                int half_w     = videoVidData->width / 2;\n                const Uint8 \*y = \(const Uint8 \*\)videoVidData->pixels;\n                const Uint8 \*u = y \+ \(videoVidData->width \* videoVidData->height\);\n                const Uint8 \*v = u \+ \(half_w \* \(videoVidData->height / 2\)\);\n\n                SDL_UpdateYUVTexture\(Engine\.videoBuffer, NULL, y, videoVidData->width, u, half_w, v, half_w\);}{#elif RETRO_USING_SDL2\n#if RETRO_PLATFORM == RETRO_iOS\n                SDL_UpdateTexture(Engine.videoBuffer, NULL, videoVidData->pixels, videoVidData->width * 4);\n#else\n                int half_w     = videoVidData->width / 2;\n                const Uint8 *y = (const Uint8 *)videoVidData->pixels;\n                const Uint8 *u = y + (videoVidData->width * videoVidData->height);\n                const Uint8 *v = u + (half_w * (videoVidData->height / 2));\n\n                SDL_UpdateYUVTexture(Engine.videoBuffer, NULL, y, videoVidData->width, u, half_w, v, half_w);\n#endif}' RSDKv3/Video.cpp
           # Replace SDL_PIXELFORMAT_YV12 with SDL_PIXELFORMAT_ARGB8888 for iOS in SetupVideoBuffer
-          perl -i -pe 's/SDL_PIXELFORMAT_YV12/SDL_PIXELFORMAT_ARGB8888/ if /SDL_CreateTexture/ && $. > 330' RSDKv3/Video.cpp
+          perl -i -pe 's/SDL_PIXELFORMAT_YV12/SDL_PIXELFORMAT_ABGR8888/ if /SDL_CreateTexture/ && $. > 330' RSDKv3/Video.cpp
 
       - name: Generate iOS icons from Android icon
         run: |
