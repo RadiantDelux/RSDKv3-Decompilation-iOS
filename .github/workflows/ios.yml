@@ -1,0 +1,20 @@
+name: Build iOS IPA
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+      - name: Build Project
+        run: |
+          xcodebuild -project "RSDKv3 ios.xcodeproj" -scheme "RSDKv3 iOS" -configuration Release -sdk iphoneos CODE_SIGNING_ALLOWED=NO
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: RSDKv3-iOS-Unsigned
+          path: build/Release-iphoneos/*.app
