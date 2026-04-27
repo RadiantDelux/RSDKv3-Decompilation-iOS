@@ -1,240 +1,74 @@
-name: Build iOS IPA
-on: [push, workflow_dispatch]
+# RSDKv3 iOS
 
-jobs:
-  build:
-    runs-on: macos-latest
-    env:
-      CFLAGS_IOS: "-arch arm64 -miphoneos-version-min=13.0"
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+An iOS port of the RSDKv3 decompilation engine (Sonic CD). This is an **unsigned IPA** — you will need to sign it using AltStore, SideStore, TrollStore, or a similar sideloading tool.
 
-      - name: Setup
-        run: |
-          echo "SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)" >> $GITHUB_ENV
-          echo "CC_IOS=$(xcrun -find clang)" >> $GITHUB_ENV
+Based on [RSDKModding/RSDKv3-Decompilation](https://github.com/RSDKModding/RSDKv3-Decompilation).
 
-          # Xcode project expects SonicCDDecomp/ but source is in RSDKv3/
-          ln -s RSDKv3 SonicCDDecomp
+## Features
+- Native ARM64 build optimized for iOS 13.0+
+- Full touchscreen controls
+- Landscape orientation support (iPhone & iPad)
+- File sharing enabled — manage game files directly from the iOS Files app
+- No copyrighted game assets included
 
-          # Fix: Theora include case mismatch
-          sed -i '' 's|#include <Theora/theora.h>|#include <theora/theora.h>|g' RSDKv3/RetroEngine.hpp
+## Installation
 
-          # Remove Embed Frameworks build phase (static libs, not dylibs)
-          sed -i '' '/Embed Frameworks/d' "RSDKv3 ios.xcodeproj/project.pbxproj"
-          # Remove orphaned PBXCopyFilesBuildPhase block (now empty)
-          sed -i '' '/Begin PBXCopyFilesBuildPhase/,/End PBXCopyFilesBuildPhase/d' "RSDKv3 ios.xcodeproj/project.pbxproj"
+### Pre-built IPA
+1. Download the latest IPA from [Releases](../../releases).
+2. Install using **AltStore**, **SideStore**, **TrollStore**, or your preferred sideloading method.
+3. Launch the app once — it will create its Documents folder.
+4. Open the **Files** app → **On My iPhone** → **RSDKv3**.
+5. Copy your own `Data.rsdk` file into this folder.
+6. Optionally add a `videos/` folder with game videos.
+7. Launch the app again — it will load your game data and generate a `settings.ini`.
 
-          # Fix cocoaHelpers for iOS
-          sed -i '' 's|#import <AppKit/AppKit.h>|#import <UIKit/UIKit.h>|' dependencies/mac/cocoaHelpers.mm
-          # Add getDocumentsPath declaration to header
-          sed -i '' 's|void getResourcesPath|const char* getDocumentsPath();\nvoid copyBundleDataToDocuments();\nvoid getResourcesPath|' dependencies/mac/cocoaHelpers.hpp
-          # Add getDocumentsPath implementation before getResourcesPath in .mm
-          sed -i '' 's|void getResourcesPath|static char _docsBuf[512];\
-          const char* getDocumentsPath() {\
-              if (_docsBuf[0] == 0) {\
-                  @autoreleasepool {\
-                      NSArray *p = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);\
-                      [[p firstObject] getCString:_docsBuf maxLength:sizeof(_docsBuf) encoding:NSUTF8StringEncoding];\
-                  }\
-              }\
-              return _docsBuf;\
-          }\
-          void copyBundleDataToDocuments() {\
-              @autoreleasepool {\
-                  NSString *docs = [NSString stringWithUTF8String:getDocumentsPath()];\
-                  NSArray *resources = @[@"Data.rsdk", @"videos"];\
-                  for (NSString *res in resources) {\
-                      NSString *dest = [docs stringByAppendingPathComponent:res];\
-                      if (![[NSFileManager defaultManager] fileExistsAtPath:dest]) {\
-                          NSString *src = [[NSBundle mainBundle] pathForResource:[res stringByDeletingPathExtension] ofType:[res pathExtension]];\
-                          if (!src) src = [[[NSBundle mainBundle] bundlePath] stringByAppendingPathComponent:res];\
-                          if ([[NSFileManager defaultManager] fileExistsAtPath:src]) {\
-                              [[NSFileManager defaultManager] copyItemAtPath:src toPath:dest error:nil];\
-                          }\
-                      }\
-                  }\
-              }\
-          }\
-          void getResourcesPath|' dependencies/mac/cocoaHelpers.mm
-          cat dependencies/mac/cocoaHelpers.hpp
-          cat dependencies/mac/cocoaHelpers.mm
+### Getting `Data.rsdk`
+You **must** provide your own `Data.rsdk` from a legitimate copy of Sonic CD:
+- **iOS:** [App Store](https://apps.apple.com/us/app/sonic-cd-classic/id454316134) — extraction tutorial [here](https://gamebanana.com/tuts/14491)
+- **Android:** [Google Play](https://play.google.com/store/apps/details?id=com.sega.soniccd.classic) — extraction tutorial [here](https://gamebanana.com/tuts/14942)
+- **Steam:** via [Sonic Origins](https://store.steampowered.com/app/1794960) or the original release
 
-          # === iOS: set gamePath to Documents so all game files load from there ===
+## Configuration
+Edit `settings.ini` in the Files app to customize:
+- `DataFile` — name of your `.rsdk` file
+- `Language` — game language
+- `DevMenu` — enable developer menu
+- `BGMVolume` / `SFXVolume` — audio levels
+- `DisableTouchControls` — toggle touch input
 
-          # 1) InitUserdata: add iOS block to set gamePath = Documents
-          perl -i -pe 'if (/^#elif RETRO_PLATFORM == RETRO_ANDROID/ && !$done++) {
-            print "#elif RETRO_PLATFORM == RETRO_iOS\n    sprintf(gamePath, \"%s/\", getDocumentsPath());\n    copyBundleDataToDocuments();\n";
-          }' RSDKv3/Userdata.cpp
+## Building from Source
 
-          # 2) RetroEngine::Init: load Data.rsdk from gamePath on iOS
-          perl -i -0pe 's/(disableFocusPause = 0;[^\n]*\n)(#else)/$1#elif RETRO_PLATFORM == RETRO_iOS\n    StrCopy(dest, gamePath);\n    StrAdd(dest, Engine.dataFile);\n$2/' RSDKv3/RetroEngine.cpp
+### Requirements
+- macOS with Xcode 16+ (or GitHub Actions)
+- Git
 
-          # 3) Ini.cpp: add iOS alongside OSX for gamePath-based file loading
-          perl -i -pe 's/#elif RETRO_PLATFORM == RETRO_OSX\b/#elif RETRO_PLATFORM == RETRO_OSX || RETRO_PLATFORM == RETRO_iOS/g' RSDKv3/Ini.cpp
+### Clone
+```bash
+git clone --recursive https://github.com/RadiantDelux/RSDKv3-iOS.git
+```
 
-          # 4) Debug.cpp: add iOS log path before RETRO_ANDROID
-          perl -i -pe 'if (/^#elif RETRO_PLATFORM == RETRO_ANDROID/ && !$done++) {
-            print "#elif RETRO_PLATFORM == RETRO_iOS\n    sprintf(pathBuffer, \"%s/log.txt\", gamePath);\n";
-          }' RSDKv3/Debug.cpp
+### Game Assets
+Place your `Data.rsdk` file in `dependencies/ios/` before building. The Xcode project references this file as a bundle resource and **will not compile without it**.
 
-          # 5) Reader.cpp: add iOS alongside OSX/Android for gamePath file loading
-          perl -i -pe 's/RETRO_PLATFORM == RETRO_OSX \|\| RETRO_PLATFORM == RETRO_ANDROID/RETRO_PLATFORM == RETRO_OSX || RETRO_PLATFORM == RETRO_ANDROID || RETRO_PLATFORM == RETRO_iOS/g' RSDKv3/Reader.cpp
+### Build
+The project builds automatically via GitHub Actions. Push to the repo and the workflow will:
+1. Build all dependencies (libogg, libvorbis, libtheora, SDL2) for iOS arm64
+2. Compile the Xcode project
+3. Generate an unsigned `.ipa` artifact
 
-      - name: Generate iOS icons from Android icon
-        run: |
-          SRC="android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"
-          DEST="dependencies/ios/Assets.xcassets/AppIcon.appiconset"
-          # Required sizes: 20@2x=40, 20@3x=60, 29@2x=58, 29@3x=87, 40@2x=80, 40@3x=120,
-          # 60@2x=120, 60@3x=180, 20@1x=20, 20@2x=40, 29@1x=29, 29@2x=58,
-          # 40@1x=40, 40@2x=80, 76@1x=76, 76@2x=152, 83.5@2x=167, 1024@1x=1024
-          for SIZE in 20 29 40 58 60 76 80 87 120 152 167 180 1024; do
-            cp "$SRC" "$DEST/icon-${SIZE}.png"
-            sips -z $SIZE $SIZE "$DEST/icon-${SIZE}.png" --out "$DEST/icon-${SIZE}.png" >/dev/null
-          done
-          # Write Contents.json with filenames
-          cat > "$DEST/Contents.json" << 'EOF'
-          {
-            "images": [
-              {"idiom":"iphone","scale":"2x","size":"20x20","filename":"icon-40.png"},
-              {"idiom":"iphone","scale":"3x","size":"20x20","filename":"icon-60.png"},
-              {"idiom":"iphone","scale":"2x","size":"29x29","filename":"icon-58.png"},
-              {"idiom":"iphone","scale":"3x","size":"29x29","filename":"icon-87.png"},
-              {"idiom":"iphone","scale":"2x","size":"40x40","filename":"icon-80.png"},
-              {"idiom":"iphone","scale":"3x","size":"40x40","filename":"icon-120.png"},
-              {"idiom":"iphone","scale":"2x","size":"60x60","filename":"icon-120.png"},
-              {"idiom":"iphone","scale":"3x","size":"60x60","filename":"icon-180.png"},
-              {"idiom":"ipad","scale":"1x","size":"20x20","filename":"icon-20.png"},
-              {"idiom":"ipad","scale":"2x","size":"20x20","filename":"icon-40.png"},
-              {"idiom":"ipad","scale":"1x","size":"29x29","filename":"icon-29.png"},
-              {"idiom":"ipad","scale":"2x","size":"29x29","filename":"icon-58.png"},
-              {"idiom":"ipad","scale":"1x","size":"40x40","filename":"icon-40.png"},
-              {"idiom":"ipad","scale":"2x","size":"40x40","filename":"icon-80.png"},
-              {"idiom":"ipad","scale":"1x","size":"76x76","filename":"icon-76.png"},
-              {"idiom":"ipad","scale":"2x","size":"76x76","filename":"icon-152.png"},
-              {"idiom":"ipad","scale":"2x","size":"83.5x83.5","filename":"icon-167.png"},
-              {"idiom":"ios-marketing","scale":"1x","size":"1024x1024","filename":"icon-1024.png"}
-            ],
-            "info": {"author":"xcode","version":1}
-          }
-          EOF
+To trigger manually: go to **Actions** → **Build iOS IPA** → **Run workflow**.
 
-      - name: Build libogg
-        run: |
-          curl -L "https://ftp.osuosl.org/pub/xiph/releases/ogg/libogg-1.3.5.tar.gz" -o libogg.tar.gz
-          tar xzf libogg.tar.gz && cd libogg-1.3.5
-          ./configure --host=arm-apple-darwin --prefix="$GITHUB_WORKSPACE/ios-deps" \
-            CC="$CC_IOS" CFLAGS="${CFLAGS_IOS} -isysroot $SDK_PATH" \
-            --disable-shared --enable-static
-          make -j$(sysctl -n hw.ncpu) && make install
+### Manual Build
+If building locally with Xcode:
+1. Open `RSDKv3 ios.xcodeproj`
+2. Set the scheme to **RSDKv3** and target **iOS Device (arm64)**
+3. Build with `Release` configuration
 
-      - name: Build libvorbis
-        run: |
-          curl -L "https://ftp.osuosl.org/pub/xiph/releases/vorbis/libvorbis-1.3.7.tar.gz" -o libvorbis.tar.gz
-          tar xzf libvorbis.tar.gz && cd libvorbis-1.3.7
-          find . -name "ltmain.sh" -exec sed -i '' 's/-force_cpusubtype_ALL//g' {} +
-          find . -name "configure" -exec sed -i '' 's/-force_cpusubtype_ALL//g' {} +
-          find . -name "libtool" -exec sed -i '' 's/-force_cpusubtype_ALL//g' {} + 2>/dev/null || true
-          export PKG_CONFIG_PATH="$GITHUB_WORKSPACE/ios-deps/lib/pkgconfig"
-          ./configure --host=arm-apple-darwin --prefix="$GITHUB_WORKSPACE/ios-deps" \
-            CC="$CC_IOS" CFLAGS="${CFLAGS_IOS} -isysroot $SDK_PATH" \
-            LDFLAGS="-L$GITHUB_WORKSPACE/ios-deps/lib -arch arm64 -isysroot $SDK_PATH" \
-            --with-ogg="$GITHUB_WORKSPACE/ios-deps" \
-            --disable-shared --enable-static --disable-oggtest
-          find . -name "libtool" -exec sed -i '' 's/-force_cpusubtype_ALL//g' {} + 2>/dev/null || true
-          make -j$(sysctl -n hw.ncpu) && make install
+> **Note:** You will need to apply the source patches from `.github/workflows/ios.yml` (the Setup step) before building locally, as they fix platform-specific incompatibilities.
 
-      - name: Build libtheora
-        run: |
-          curl -L "https://ftp.osuosl.org/pub/xiph/releases/theora/libtheora-1.1.1.tar.gz" -o libtheora.tar.gz
-          tar xzf libtheora.tar.gz && cd libtheora-1.1.1
-          find . -name "ltmain.sh" -exec sed -i '' 's/-force_cpusubtype_ALL//g' {} +
-          find . -name "configure" -exec sed -i '' 's/-force_cpusubtype_ALL//g' {} +
-          export PKG_CONFIG_PATH="$GITHUB_WORKSPACE/ios-deps/lib/pkgconfig"
-          ./configure --host=arm-apple-darwin --prefix="$GITHUB_WORKSPACE/ios-deps" \
-            CC="$CC_IOS" CFLAGS="${CFLAGS_IOS} -isysroot $SDK_PATH" \
-            LDFLAGS="-L$GITHUB_WORKSPACE/ios-deps/lib -arch arm64 -isysroot $SDK_PATH" \
-            --with-ogg="$GITHUB_WORKSPACE/ios-deps" \
-            --disable-shared --enable-static --disable-examples --disable-encode --disable-oggtest --disable-vorbistest
-          find . -name "libtool" -exec sed -i '' 's/-force_cpusubtype_ALL//g' {} + 2>/dev/null || true
-          make -j$(sysctl -n hw.ncpu) && make install
+## Disclaimer
+This project does not include any copyrighted game assets. You must provide your own `Data.rsdk` file from a legitimate copy of Sonic CD. This is an engine reimplementation only.
 
-      - name: Build SDL2
-        run: |
-          curl -L "https://libsdl.org/release/SDL2-2.30.7.tar.gz" -o SDL2.tar.gz
-          tar xzf SDL2.tar.gz && cd SDL2-2.30.7
-          mkdir build-ios && cd build-ios
-          cmake .. -DCMAKE_SYSTEM_NAME=iOS \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=13.0 \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/ios-deps" \
-            -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_TEST=OFF
-          cmake --build . --config Release -j$(sysctl -n hw.ncpu)
-          cmake --install . --config Release
-
-      - name: Create frameworks
-        run: |
-          mkdir -p dependencies/ios/Ogg.framework/Headers
-          cp ios-deps/include/ogg/*.h dependencies/ios/Ogg.framework/Headers/
-          cp ios-deps/lib/libogg.a dependencies/ios/Ogg.framework/Ogg
-
-          mkdir -p dependencies/ios/Vorbis.framework/Headers
-          cp ios-deps/include/vorbis/*.h dependencies/ios/Vorbis.framework/Headers/
-          libtool -static -o dependencies/ios/Vorbis.framework/Vorbis ios-deps/lib/libvorbis.a ios-deps/lib/libvorbisfile.a
-
-          mkdir -p dependencies/ios/Theora.framework/Headers
-          cp ios-deps/include/theora/*.h dependencies/ios/Theora.framework/Headers/
-          libtool -static -o dependencies/ios/Theora.framework/Theora ios-deps/lib/libtheora.a ios-deps/lib/libtheoradec.a
-
-          mkdir -p dependencies/ios/SDL2.framework/Headers
-          cp ios-deps/include/SDL2/*.h dependencies/ios/SDL2.framework/Headers/
-          cp ios-deps/lib/libSDL2.a dependencies/ios/SDL2.framework/SDL2
-
-          # Create libSDLMain.a with proper iOS main using SDL_UIKitRunApp
-          printf 'typedef int (*SDL_main_func)(int argc, char *argv[]);\nextern int SDL_UIKitRunApp(int argc, char *argv[], SDL_main_func mainFunction);\nextern int SDL_main(int argc, char *argv[]);\nint main(int argc, char *argv[]) { return SDL_UIKitRunApp(argc, argv, SDL_main); }\n' > /tmp/sdlmain_ios.c
-          xcrun -sdk iphoneos clang -arch arm64 -miphoneos-version-min=13.0 -isysroot $SDK_PATH -c /tmp/sdlmain_ios.c -o /tmp/sdlmain_ios.o
-          ar rcs dependencies/ios/libSDLMain.a /tmp/sdlmain_ios.o
-
-      - name: Create stubs for missing symbols
-        run: |
-          printf '#include <cstdio>\nchar savePath[0x100];\nint GetSceneID(unsigned char listID, const char *sceneName) { return -1; }\n' > /tmp/modapi_stub.cpp
-          xcrun -sdk iphoneos clang++ -arch arm64 -std=gnu++14 -miphoneos-version-min=13.0 -c /tmp/modapi_stub.cpp -o /tmp/modapi_stub.o
-          ar rcs dependencies/ios/libModAPIStub.a /tmp/modapi_stub.o
-
-      - name: Build RSDKv3 iOS
-        run: |
-          xcodebuild -project "RSDKv3 ios.xcodeproj" \
-            -scheme "RSDKv3" \
-            -configuration Release \
-            -sdk iphoneos \
-            -arch arm64 \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO \
-            FRAMEWORK_SEARCH_PATHS="$(pwd)/dependencies/ios" \
-            LIBRARY_SEARCH_PATHS="$(pwd)/dependencies/ios $(pwd)/ios-deps/lib" \
-            OTHER_LDFLAGS='-lModAPIStub -framework AVFoundation -framework AudioToolbox -framework CoreAudio -framework CoreBluetooth -framework CoreGraphics -framework CoreHaptics -framework CoreMotion -framework Foundation -framework GameController -framework Metal -framework OpenGLES -framework QuartzCore -framework UIKit' \
-            HEADER_SEARCH_PATHS="$(pwd)/ios-deps/include $(pwd)/ios-deps/include/SDL2 $(pwd)/ios-deps/include/vorbis $(pwd)/ios-deps/include/ogg $(pwd)/ios-deps/include/theora $(pwd)/SonicCDDecomp $(pwd)/dependencies/all/theoraplay" \
-            GCC_PREPROCESSOR_DEFINITIONS='RETRO_USING_OPENGL=0 RETRO_USE_MOD_LOADER=0 $(inherited)' \
-            OTHER_CFLAGS='-Wno-deprecated-declarations -Wno-nonportable-include-path'
-
-      - name: Package IPA
-        run: |
-          APP=build/Build/Products/Release-iphoneos/RSDKv3.app
-          # Remove game data from IPA to avoid distributing copyrighted files
-          rm -f "$APP/Data.rsdk"
-          # Ensure file sharing keys survive re-signing
-          /usr/libexec/PlistBuddy -c "Delete :UIFileSharingEnabled" "$APP/Info.plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" "$APP/Info.plist"
-          /usr/libexec/PlistBuddy -c "Delete :LSSupportsOpeningDocumentsInPlace" "$APP/Info.plist" 2>/dev/null || true
-          /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" "$APP/Info.plist"
-          mkdir -p Payload
-          cp -r "$APP" Payload/
-          zip -r RSDKv3.ipa Payload
-
-      - name: Upload IPA
-        uses: actions/upload-artifact@v4
-        with:
-          name: RSDKv3-iOS-Unsigned
-          path: RSDKv3.ipa
+## Credits
+- [RSDKModding](https://github.com/RSDKModding) — original RSDKv3 decompilation
+- [Xeeynamo](https://github.com/Xeeynamo), [Sappharad](https://github.com/Sappharad), [SuperSonic16](https://github.com/TheSuperSonic16), [biscuitball425](https://github.com/biscuitball425) — contributions to the original project
