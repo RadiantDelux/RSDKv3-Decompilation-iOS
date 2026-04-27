@@ -295,3 +295,12 @@ android/local.properties
 .flatpak-builder
 flatpak/*.apk
 build-dir
+
+# Windsurf / Skills
+.windsurf/
+.agents/
+skills-lock.json
+
+# IPA artifacts
+*.zip
+*.ipa
