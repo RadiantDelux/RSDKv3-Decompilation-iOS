@@ -19,7 +19,7 @@ Based on [RSDKModding/RSDKv3-Decompilation](https://github.com/RSDKModding/RSDKv
 3. Launch the app once — it will create its Documents folder.
 4. Open the **Files** app → **On My iPhone** → **RSDKv3**.
 5. Copy your own `Data.rsdk` file into this folder.
-6. Optionally add a `videos/` folder with game videos.
+6. Optionally add a `videos/` folder with `.ogv` video files (Steam version only, lowercase filenames).
 7. Launch the app again — it will load your game data and generate a `settings.ini`.
 
 ### Getting `Data.rsdk`
@@ -46,9 +46,6 @@ Edit `settings.ini` in the Files app to customize:
 ```bash
 git clone --recursive https://github.com/RadiantDelux/RSDKv3-iOS.git
 ```
-
-### Game Assets
-Place your `Data.rsdk` file in `dependencies/ios/` before building. The Xcode project references this file as a bundle resource and **will not compile without it**.
 
 ### Build
 The project builds automatically via GitHub Actions. Push to the repo and the workflow will:
